@@ -9,16 +9,14 @@ using Microsoft.CmdPal.Core.Common.Services;
 using Microsoft.CmdPal.Core.ViewModels;
 using Microsoft.CmdPal.UI.ViewModels.Messages;
 using Microsoft.CmdPal.UI.ViewModels.Properties;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Microsoft.CmdPal.UI.ViewModels;
 
 public partial class ProviderSettingsViewModel(
     CommandProviderWrapper _provider,
     ProviderSettings _providerSettings,
-    IServiceProvider _serviceProvider) : ObservableObject
+    SettingsModel _settings) : ObservableObject
 {
-    private readonly SettingsModel _settings = _serviceProvider.GetService<SettingsModel>()!;
     private readonly Lock _initializeSettingsLock = new();
     private Task? _initializeSettingsTask;
 

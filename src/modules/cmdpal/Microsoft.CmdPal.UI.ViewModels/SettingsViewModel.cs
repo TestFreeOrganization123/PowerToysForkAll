@@ -5,14 +5,13 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using Microsoft.CmdPal.UI.ViewModels.Settings;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Microsoft.CmdPal.UI.ViewModels;
 
 public partial class SettingsViewModel : INotifyPropertyChanged
 {
     private readonly SettingsModel _settings;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly TopLevelCommandManager _tlcManager;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -142,10 +141,10 @@ public partial class SettingsViewModel : INotifyPropertyChanged
 
     public SettingsExtensionsViewModel Extensions { get; }
 
-    public SettingsViewModel(SettingsModel settings, IServiceProvider serviceProvider, TaskScheduler scheduler)
+    public SettingsViewModel(SettingsModel settings, TaskScheduler scheduler, TopLevelCommandManager topLevelCommandManager)
     {
         _settings = settings;
-        _serviceProvider = serviceProvider;
+        _tlcManager = topLevelCommandManager;
 
         var activeProviders = GetCommandProviders();
         var allProviderSettings = _settings.ProviderSettings;
@@ -154,7 +153,7 @@ public partial class SettingsViewModel : INotifyPropertyChanged
         {
             var providerSettings = settings.GetProviderSettings(item);
 
-            var settingsModel = new ProviderSettingsViewModel(item, providerSettings, _serviceProvider);
+            var settingsModel = new ProviderSettingsViewModel(item, providerSettings, _settings);
             CommandProviders.Add(settingsModel);
         }
 
@@ -163,8 +162,7 @@ public partial class SettingsViewModel : INotifyPropertyChanged
 
     private IEnumerable<CommandProviderWrapper> GetCommandProviders()
     {
-        var manager = _serviceProvider.GetService<TopLevelCommandManager>()!;
-        var allProviders = manager.CommandProviders;
+        var allProviders = _tlcManager.CommandProviders;
         return allProviders;
     }
 

@@ -11,7 +11,6 @@ using Microsoft.CmdPal.Core.ViewModels.Messages;
 using Microsoft.CmdPal.UI.Helpers;
 using Microsoft.CmdPal.UI.Messages;
 using Microsoft.CmdPal.UI.ViewModels;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -31,6 +30,7 @@ public sealed partial class ListPage : Page,
     IRecipient<ActivateSelectedListItemMessage>,
     IRecipient<ActivateSecondaryCommandMessage>
 {
+    private readonly SettingsModel _settings;
     private InputSource _lastInputSource;
 
     internal ListViewModel? ViewModel
@@ -51,9 +51,11 @@ public sealed partial class ListPage : Page,
         }
     }
 
-    public ListPage()
+    public ListPage(SettingsModel settings)
     {
         this.InitializeComponent();
+        _settings = settings;
+
         this.NavigationCacheMode = NavigationCacheMode.Disabled;
         this.ItemView.Loaded += Items_Loaded;
         this.ItemView.PreviewKeyDown += Items_PreviewKeyDown;
@@ -133,8 +135,7 @@ public sealed partial class ListPage : Page,
                 return;
             }
 
-            var settings = App.Current.Services.GetService<SettingsModel>()!;
-            if (settings.SingleClickActivates)
+            if (_settings.SingleClickActivates)
             {
                 ViewModel?.InvokeItemCommand.Execute(item);
             }
@@ -150,8 +151,7 @@ public sealed partial class ListPage : Page,
     {
         if (ItemView.SelectedItem is ListItemViewModel vm)
         {
-            var settings = App.Current.Services.GetService<SettingsModel>()!;
-            if (!settings.SingleClickActivates)
+            if (!_settings.SingleClickActivates)
             {
                 ViewModel?.InvokeItemCommand.Execute(vm);
             }

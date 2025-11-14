@@ -10,7 +10,6 @@ using Microsoft.CmdPal.Core.ViewModels;
 using Microsoft.CmdPal.UI.ViewModels;
 using Microsoft.CmdPal.UI.ViewModels.MainPage;
 using Microsoft.CommandPalette.Extensions;
-using Microsoft.Extensions.DependencyInjection;
 using WinRT;
 
 // To learn more about WinUI, the WinUI project structure,
@@ -19,24 +18,23 @@ namespace Microsoft.CmdPal.UI;
 
 internal sealed class PowerToysRootPageService : IRootPageService
 {
-    private readonly IServiceProvider _serviceProvider;
+    private readonly TopLevelCommandManager _topLevelCommandManager;
     private IExtensionWrapper? _activeExtension;
     private Lazy<MainListPage> _mainListPage;
 
-    public PowerToysRootPageService(IServiceProvider serviceProvider)
+    public PowerToysRootPageService(TopLevelCommandManager topLevelCommandManager, SettingsModel settingsModel, AliasManager aliasManager, AppStateModel appStateModel)
     {
-        _serviceProvider = serviceProvider;
+        _topLevelCommandManager = topLevelCommandManager;
 
         _mainListPage = new Lazy<MainListPage>(() =>
         {
-            return new MainListPage(_serviceProvider);
+            return new MainListPage(_topLevelCommandManager, settingsModel, aliasManager, appStateModel);
         });
     }
 
     public async Task PreLoadAsync()
     {
-        var tlcManager = _serviceProvider.GetService<TopLevelCommandManager>()!;
-        await tlcManager.LoadBuiltinsAsync();
+        await _topLevelCommandManager.LoadBuiltinsAsync();
     }
 
     public Microsoft.CommandPalette.Extensions.IPage GetRootPage()
@@ -46,13 +44,11 @@ internal sealed class PowerToysRootPageService : IRootPageService
 
     public async Task PostLoadRootPageAsync()
     {
-        var tlcManager = _serviceProvider.GetService<TopLevelCommandManager>()!;
-
         // After loading built-ins, and starting navigation, kick off a thread to load extensions.
-        tlcManager.LoadExtensionsCommand.Execute(null);
+        _topLevelCommandManager.LoadExtensionsCommand.Execute(null);
 
-        await tlcManager.LoadExtensionsCommand.ExecutionTask!;
-        if (tlcManager.LoadExtensionsCommand.ExecutionTask.Status != TaskStatus.RanToCompletion)
+        await _topLevelCommandManager.LoadExtensionsCommand.ExecutionTask!;
+        if (_topLevelCommandManager.LoadExtensionsCommand.ExecutionTask.Status != TaskStatus.RanToCompletion)
         {
             // TODO: Handle failure case
         }

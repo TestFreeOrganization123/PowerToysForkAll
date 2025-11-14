@@ -14,9 +14,9 @@ using Microsoft.CmdPal.Ext.ClipboardHistory.Messages;
 using Microsoft.CmdPal.UI.Events;
 using Microsoft.CmdPal.UI.Helpers;
 using Microsoft.CmdPal.UI.Messages;
+using Microsoft.CmdPal.UI.Pages;
 using Microsoft.CmdPal.UI.ViewModels;
 using Microsoft.CmdPal.UI.ViewModels.Messages;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.PowerToys.Telemetry;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Composition.SystemBackdrops;
@@ -58,6 +58,10 @@ public sealed partial class MainWindow : WindowEx,
     private readonly KeyboardListener _keyboardListener;
     private readonly LocalKeyboardListener _localKeyboardListener;
     private readonly HiddenOwnerWindowBehavior _hiddenOwnerBehavior = new();
+    private readonly SettingsModel _settings;
+    private readonly TrayIconService _trayIconService;
+    private readonly IExtensionService _extensionService;
+    private readonly ShellPage _rootShellPage;
     private bool _ignoreHotKeyWhenFullScreen = true;
 
     private DesktopAcrylicController? _acrylicController;
@@ -65,9 +69,16 @@ public sealed partial class MainWindow : WindowEx,
 
     private WindowPosition _currentWindowPosition = new();
 
-    public MainWindow()
+    public MainWindow(SettingsModel settingsModel, TrayIconService trayIconService, IExtensionService extensionService, ShellPage shellPage)
     {
         InitializeComponent();
+
+        _settings = settingsModel;
+        _trayIconService = trayIconService;
+        _extensionService = extensionService;
+
+        _rootShellPage = shellPage;
+        Window.WindowContent = _rootShellPage;
 
         _hwnd = new HWND(WinRT.Interop.WindowNative.GetWindowHandle(this).ToInt32());
 
@@ -102,7 +113,7 @@ public sealed partial class MainWindow : WindowEx,
         ExtendsContentIntoTitleBar = true;
         AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Collapsed;
         SizeChanged += WindowSizeChanged;
-        RootShellPage.Loaded += RootShellPage_Loaded;
+        _rootShellPage.Loaded += RootShellPage_Loaded;
 
         WM_TASKBAR_RESTART = PInvoke.RegisterWindowMessage("TaskbarCreated");
 
@@ -116,10 +127,10 @@ public sealed partial class MainWindow : WindowEx,
 
         // Load our settings, and then also wire up a settings changed handler
         HotReloadSettings();
-        App.Current.Services.GetService<SettingsModel>()!.SettingsChanged += SettingsChangedHandler;
+        _settings.SettingsChanged += SettingsChangedHandler;
 
         // Make sure that we update the acrylic theme when the OS theme changes
-        RootShellPage.ActualThemeChanged += (s, e) => DispatcherQueue.TryEnqueue(UpdateAcrylic);
+        _rootShellPage.ActualThemeChanged += (s, e) => DispatcherQueue.TryEnqueue(UpdateAcrylic);
 
         // Hardcoding event name to avoid bringing in the PowerToys.interop dependency. Event name must match CMDPAL_SHOW_EVENT from shared_constants.h
         NativeEventWaiter.WaitForEventLoop("Local\\PowerToysCmdPal-ShowEvent-62336fcd-8611-4023-9b30-091a6af4cc5a", () =>
@@ -160,8 +171,7 @@ public sealed partial class MainWindow : WindowEx,
 
     private void RestoreWindowPosition()
     {
-        var settings = App.Current.Services.GetService<SettingsModel>();
-        if (settings?.LastWindowPosition is not WindowPosition savedPosition)
+        if (_settings.LastWindowPosition is not WindowPosition savedPosition)
         {
             PositionCentered();
             return;
@@ -218,12 +228,10 @@ public sealed partial class MainWindow : WindowEx,
 
     private void HotReloadSettings()
     {
-        var settings = App.Current.Services.GetService<SettingsModel>()!;
+        SetupHotkey(_settings);
+        _trayIconService.SetupTrayIcon(_settings.ShowSystemTrayIcon);
 
-        SetupHotkey(settings);
-        App.Current.Services.GetService<TrayIconService>()!.SetupTrayIcon(settings.ShowSystemTrayIcon);
-
-        _ignoreHotKeyWhenFullScreen = settings.IgnoreShortcutWhenFullscreen;
+        _ignoreHotKeyWhenFullScreen = _settings.IgnoreShortcutWhenFullscreen;
     }
 
     // We want to use DesktopAcrylicKind.Thin and custom colors as this is the default material
@@ -378,9 +386,7 @@ public sealed partial class MainWindow : WindowEx,
 
     public void Receive(ShowWindowMessage message)
     {
-        var settings = App.Current.Services.GetService<SettingsModel>()!;
-
-        ShowHwnd(message.Hwnd, settings.SummonOn);
+        ShowHwnd(message.Hwnd, _settings.SummonOn);
     }
 
     public void Receive(HideWindowMessage message)
@@ -467,13 +473,11 @@ public sealed partial class MainWindow : WindowEx,
 
     internal void MainWindow_Closed(object sender, WindowEventArgs args)
     {
-        var serviceProvider = App.Current.Services;
         UpdateWindowPositionInMemory();
 
-        var settings = serviceProvider.GetService<SettingsModel>();
-        if (settings is not null)
+        if (_settings is not null)
         {
-            settings.LastWindowPosition = new WindowPosition
+            _settings.LastWindowPosition = new WindowPosition
             {
                 X = _currentWindowPosition.X,
                 Y = _currentWindowPosition.Y,
@@ -481,13 +485,12 @@ public sealed partial class MainWindow : WindowEx,
                 Height = _currentWindowPosition.Height,
             };
 
-            SettingsModel.SaveSettings(settings);
+            SettingsModel.SaveSettings(_settings);
         }
 
-        var extensionService = serviceProvider.GetService<IExtensionService>()!;
-        extensionService.SignalStopExtensionsAsync();
+        _extensionService.SignalStopExtensionsAsync();
 
-        App.Current.Services.GetService<TrayIconService>()!.Destroy();
+        _trayIconService.Destroy();
 
         // WinUI bug is causing a crash on shutdown when FailFastOnErrors is set to true (#51773592).
         // Workaround by turning it off before shutdown.
@@ -513,28 +516,28 @@ public sealed partial class MainWindow : WindowEx,
     private void UpdateRegionsForCustomTitleBar()
     {
         // Specify the interactive regions of the title bar.
-        var scaleAdjustment = RootShellPage.XamlRoot.RasterizationScale;
+        var scaleAdjustment = _rootShellPage.XamlRoot.RasterizationScale;
 
         // Get the rectangle around our XAML content. We're going to mark this
         // rectangle as "Passthrough", so that the normal window operations
         // (resizing, dragging) don't apply in this space.
-        var transform = RootShellPage.TransformToVisual(null);
+        var transform = _rootShellPage.TransformToVisual(null);
 
         // Reserve 16px of space at the top for dragging.
         var topHeight = 16;
         var bounds = transform.TransformBounds(new Rect(
             0,
             topHeight,
-            RootShellPage.ActualWidth,
-            RootShellPage.ActualHeight));
+            _rootShellPage.ActualWidth,
+            _rootShellPage.ActualHeight));
         var contentRect = GetRect(bounds, scaleAdjustment);
         var rectArray = new RectInt32[] { contentRect };
         var nonClientInputSrc = InputNonClientPointerSource.GetForWindowId(this.AppWindow.Id);
         nonClientInputSrc.SetRegionRects(NonClientRegionKind.Passthrough, rectArray);
 
         // Add a drag-able region on top
-        var w = RootShellPage.ActualWidth;
-        _ = RootShellPage.ActualHeight;
+        var w = _rootShellPage.ActualWidth;
+        _ = _rootShellPage.ActualHeight;
         var dragSides = new RectInt32[]
         {
             GetRect(new Rect(0, 0, w, topHeight), scaleAdjustment), // the top, {topHeight=16} tall
@@ -624,8 +627,7 @@ public sealed partial class MainWindow : WindowEx,
                         }
                         else if (uri.StartsWith("x-cmdpal://reload", StringComparison.OrdinalIgnoreCase))
                         {
-                            var settings = App.Current.Services.GetService<SettingsModel>();
-                            if (settings?.AllowExternalReload == true)
+                            if (_settings.AllowExternalReload == true)
                             {
                                 Logger.LogInfo("External Reload triggered");
                                 WeakReferenceMessenger.Default.Send<ReloadCommandsMessage>(new());

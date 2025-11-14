@@ -23,6 +23,8 @@ using Microsoft.CmdPal.Ext.WindowsTerminal;
 using Microsoft.CmdPal.Ext.WindowWalker;
 using Microsoft.CmdPal.Ext.WinGet;
 using Microsoft.CmdPal.UI.Helpers;
+using Microsoft.CmdPal.UI.Pages;
+using Microsoft.CmdPal.UI.Settings;
 using Microsoft.CmdPal.UI.ViewModels;
 using Microsoft.CmdPal.UI.ViewModels.BuiltinCommands;
 using Microsoft.CmdPal.UI.ViewModels.Models;
@@ -51,10 +53,7 @@ public partial class App : Application
 
     public ETWTrace EtwTrace { get; private set; } = new ETWTrace();
 
-    /// <summary>
-    /// Gets the <see cref="IServiceProvider"/> instance to resolve application services.
-    /// </summary>
-    public IServiceProvider Services { get; }
+    private readonly ServiceProvider _services;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="App"/> class.
@@ -67,7 +66,7 @@ public partial class App : Application
         _globalErrorHandler.Register(this);
 #endif
 
-        Services = ConfigureServices();
+        _services = ConfigureServices();
 
         this.InitializeComponent();
 
@@ -94,7 +93,7 @@ public partial class App : Application
     /// <param name="args">Details about the launch request and process.</param>
     protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
     {
-        AppWindow = new MainWindow();
+        AppWindow = _services.GetRequiredService<MainWindow>();
 
         var activatedEventArgs = Microsoft.Windows.AppLifecycle.AppInstance.GetCurrent().GetActivatedEventArgs();
         ((MainWindow)AppWindow).HandleLaunchNonUI(activatedEventArgs);
@@ -110,6 +109,10 @@ public partial class App : Application
 
         // Root services
         services.AddSingleton(TaskScheduler.FromCurrentSynchronizationContext());
+        services.AddSingleton<IAppHostService, PowerToysAppHostService>();
+        services.AddSingleton<ITelemetryService, TelemetryForwarder>();
+
+        // TODO: Register ILogger
 
         // Built-in Commands. Order matters - this is the order they'll be presented by default.
         var allApps = new AllAppsCommandProvider();
@@ -152,25 +155,34 @@ public partial class App : Application
         services.AddSingleton<ICommandProvider, TimeDateCommandsProvider>();
         services.AddSingleton<ICommandProvider, SystemCommandExtensionProvider>();
 
-        // Models
-        services.AddSingleton<TopLevelCommandManager>();
-        services.AddSingleton<AliasManager>();
-        services.AddSingleton<HotkeyManager>();
+        // Settings & state
         var sm = SettingsModel.LoadSettings();
         services.AddSingleton(sm);
         var state = AppStateModel.LoadState();
         services.AddSingleton(state);
+
+        // Services
+        services.AddSingleton<TopLevelCommandManager>();
+        services.AddSingleton<AliasManager>();
+        services.AddSingleton<HotkeyManager>();
         services.AddSingleton<IExtensionService, ExtensionService>();
         services.AddSingleton<TrayIconService>();
         services.AddSingleton<IRunHistoryService, RunHistoryService>();
 
-        services.AddSingleton<IRootPageService, PowerToysRootPageService>();
-        services.AddSingleton<IAppHostService, PowerToysAppHostService>();
-        services.AddSingleton<ITelemetryService, TelemetryForwarder>();
-
         // ViewModels
         services.AddSingleton<ShellViewModel>();
+        services.AddSingleton<SettingsViewModel>();
         services.AddSingleton<IPageViewModelFactoryService, CommandPalettePageViewModelFactory>();
+
+        // Views
+        services.AddSingleton<IRootPageService, PowerToysRootPageService>();
+        services.AddSingleton<MainWindow>();
+        services.AddSingleton<ShellPage>();
+
+        services.AddTransient<ListPage>();
+        services.AddTransient<GeneralPage>();
+        services.AddTransient<ExtensionPage>();
+        services.AddTransient<ExtensionsPage>();
 
         return services.BuildServiceProvider();
     }

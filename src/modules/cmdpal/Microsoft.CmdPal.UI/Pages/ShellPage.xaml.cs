@@ -16,12 +16,10 @@ using Microsoft.CmdPal.UI.Messages;
 using Microsoft.CmdPal.UI.Settings;
 using Microsoft.CmdPal.UI.ViewModels;
 using Microsoft.CommandPalette.Extensions;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.PowerToys.Telemetry;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media.Animation;
@@ -62,6 +60,9 @@ public sealed partial class ShellPage : Microsoft.UI.Xaml.Controls.Page,
 
     private readonly ToastWindow _toast = new();
 
+    private readonly SettingsModel _settings;
+    private readonly TopLevelCommandManager tlcManager;
+
     private readonly CompositeFormat _pageNavigatedAnnouncement;
 
     private SettingsWindow? _settingsWindow;
@@ -69,13 +70,17 @@ public sealed partial class ShellPage : Microsoft.UI.Xaml.Controls.Page,
     private CancellationTokenSource? _focusAfterLoadedCts;
     private WeakReference<Page>? _lastNavigatedPageRef;
 
-    public ShellViewModel ViewModel { get; private set; } = App.Current.Services.GetService<ShellViewModel>()!;
+    public ShellViewModel ViewModel { get; private set; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public ShellPage()
+    public ShellPage(ShellViewModel shellViewModel, SettingsModel settingsModel, TopLevelCommandManager topLevelCommandManager)
     {
         this.InitializeComponent();
+
+        ViewModel = shellViewModel;
+        _settings = settingsModel;
+        tlcManager = topLevelCommandManager;
 
         // how we are doing navigation around
         WeakReferenceMessenger.Default.Register<NavigateBackMessage>(this);
@@ -112,19 +117,16 @@ public sealed partial class ShellPage : Microsoft.UI.Xaml.Controls.Page,
     {
         get
         {
-            var settings = App.Current.Services.GetService<SettingsModel>()!;
-            return settings.DisableAnimations ? _noAnimation : _slideRightTransition;
+            return _settings.DisableAnimations ? _noAnimation : _slideRightTransition;
         }
     }
 
     public void Receive(NavigateBackMessage message)
     {
-        var settings = App.Current.Services.GetService<SettingsModel>()!;
-
         if (RootFrame.CanGoBack)
         {
             if (!message.FromBackspace ||
-                settings.BackspaceGoesBack)
+                _settings.BackspaceGoesBack)
             {
                 GoBack();
             }
@@ -335,7 +337,6 @@ public sealed partial class ShellPage : Microsoft.UI.Xaml.Controls.Page,
 
     private void SummonOnUiThread(HotkeySummonMessage message)
     {
-        var settings = App.Current.Services.GetService<SettingsModel>()!;
         var commandId = message.CommandId;
         var isRoot = string.IsNullOrEmpty(commandId);
         if (isRoot)
@@ -346,11 +347,11 @@ public sealed partial class ShellPage : Microsoft.UI.Xaml.Controls.Page,
             // Depending on the settings, either
             // * Go home, or
             // * Select the search text (if we should remain open on this page)
-            if (settings.HotkeyGoesHome)
+            if (_settings.HotkeyGoesHome)
             {
                 GoHome(false);
             }
-            else if (settings.HighlightSearchOnActivate)
+            else if (_settings.HighlightSearchOnActivate)
             {
                 SearchBox.SelectSearch();
             }
@@ -360,8 +361,7 @@ public sealed partial class ShellPage : Microsoft.UI.Xaml.Controls.Page,
             try
             {
                 // For a hotkey bound to a command, first lookup the
-                // command from our list of toplevel commands.
-                var tlcManager = App.Current.Services.GetService<TopLevelCommandManager>()!;
+                // command from our list of top level commands.
                 var topLevelCommand = tlcManager.LookupCommand(commandId);
                 if (topLevelCommand is not null)
                 {
@@ -655,15 +655,15 @@ public sealed partial class ShellPage : Microsoft.UI.Xaml.Controls.Page,
                 e.Handled = true;
                 break;
             default:
-            {
-                // The CommandBar is responsible for handling all the item keybindings,
-                // since the bound context item may need to then show another
-                // context menu
-                TryCommandKeybindingMessage msg = new(ctrlPressed, altPressed, shiftPressed, winPressed, e.Key);
-                WeakReferenceMessenger.Default.Send(msg);
-                e.Handled = msg.Handled;
-                break;
-            }
+                {
+                    // The CommandBar is responsible for handling all the item keybindings,
+                    // since the bound context item may need to then show another
+                    // context menu
+                    TryCommandKeybindingMessage msg = new(ctrlPressed, altPressed, shiftPressed, winPressed, e.Key);
+                    WeakReferenceMessenger.Default.Send(msg);
+                    e.Handled = msg.Handled;
+                    break;
+                }
         }
     }
 

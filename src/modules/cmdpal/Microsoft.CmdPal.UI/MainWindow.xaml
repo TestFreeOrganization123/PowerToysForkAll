@@ -13,6 +13,6 @@
     MinHeight="240"
     Activated="MainWindow_Activated"
     Closed="MainWindow_Closed"
+    x:Name="Window"
     mc:Ignorable="d">
-    <pages:ShellPage x:Name="RootShellPage" />
 </winuiex:WindowEx>
